@@ -1,8 +1,16 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAtom } from 'jotai'
 import { voucherFormSchema, fieldSchemas, type VoucherFormData, AircraftType } from '../types'
-import { formDataAtom, isLoadingAtom, generatedSeatsAtom, errorMessageAtom, successMessageAtom } from '../store/atoms'
-import { checkVoucher, generateVoucher } from '../api/voucher'
+import { 
+  formDataAtom, 
+  isLoadingAtom, 
+  generatedSeatsAtom, 
+  errorMessageAtom, 
+  successMessageAtom,
+  currentVoucherAtom,
+  isRegeneratingAtom
+} from '../store/atoms'
+import { checkVoucher, generateVoucher, getVoucher, regenerateSeat } from '../api/voucher'
 import { formatDateForAPI, formatDateInput, formatFlightNumberInput } from '../utils/date'
 import { ZodError } from 'zod'
 import './VoucherForm.css'
@@ -13,7 +21,48 @@ export const VoucherForm: React.FC = () => {
   const [generatedSeats, setGeneratedSeats] = useAtom(generatedSeatsAtom)
   const [errorMessage, setErrorMessage] = useAtom(errorMessageAtom)
   const [successMessage, setSuccessMessage] = useAtom(successMessageAtom)
+  const [currentVoucher, setCurrentVoucher] = useAtom(currentVoucherAtom)
+  const [isRegenerating, setIsRegenerating] = useAtom(isRegeneratingAtom)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+
+  // Check for existing voucher when flight details change
+  useEffect(() => {
+    const checkExistingVoucher = async () => {
+      if (formData.flightNumber && formData.flightDate) {
+        try {
+          const formattedDate = formatDateForAPI(formData.flightDate)
+          const result = await getVoucher({
+            flightNumber: formData.flightNumber,
+            date: formattedDate,
+          })
+          
+          if (result.exists && result.voucher) {
+            setCurrentVoucher({
+              exists: true,
+              seats: [result.voucher.seat1, result.voucher.seat2, result.voucher.seat3],
+              flightNumber: formData.flightNumber,
+              date: formattedDate,
+            })
+            setGeneratedSeats([result.voucher.seat1, result.voucher.seat2, result.voucher.seat3])
+          } else {
+            setCurrentVoucher(null)
+            setGeneratedSeats([])
+          }
+        } catch (error) {
+          // Silently handle errors - voucher might not exist yet
+          setCurrentVoucher(null)
+          setGeneratedSeats([])
+        }
+      } else {
+        setCurrentVoucher(null)
+        setGeneratedSeats([])
+      }
+    }
+
+    // Debounce the check to avoid too many API calls
+    const timeoutId = setTimeout(checkExistingVoucher, 500)
+    return () => clearTimeout(timeoutId)
+  }, [formData.flightNumber, formData.flightDate, setCurrentVoucher, setGeneratedSeats])
 
   const handleInputChange = (field: keyof VoucherFormData, value: string) => {
     let processedValue = value
@@ -53,13 +102,50 @@ export const VoucherForm: React.FC = () => {
   const clearMessages = () => {
     setErrorMessage(null)
     setSuccessMessage(null)
-    setGeneratedSeats([])
+  }
+
+  const handleRegenerateSeat = async (seatPosition: number) => {
+    if (!currentVoucher) return
+
+    clearMessages()
+    setIsRegenerating(true)
+
+    try {
+      const result = await regenerateSeat({
+        flightNumber: currentVoucher.flightNumber,
+        date: currentVoucher.date,
+        seatPosition: seatPosition,
+      })
+
+      if (result.success) {
+        // Update the seats display
+        setGeneratedSeats(result.allSeats)
+        setCurrentVoucher({
+          ...currentVoucher,
+          seats: result.allSeats,
+        })
+        setSuccessMessage(`Seat ${seatPosition} regenerated successfully! New seat: ${result.newSeat}`)
+      } else {
+        setErrorMessage('Failed to regenerate seat. Please try again.')
+      }
+    } catch (error) {
+      console.error('Error regenerating seat:', error)
+      setErrorMessage('An error occurred while regenerating the seat. Please try again.')
+    } finally {
+      setIsRegenerating(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     clearMessages()
+    
+    // If vouchers already exist, show message instead of generating new ones
+    if (currentVoucher?.exists) {
+      setErrorMessage('Vouchers have already been generated for this flight on the selected date. Use the regenerate buttons to change individual seats.')
+      return
+    }
     
     // Validate the entire form before submission
     try {
@@ -104,6 +190,12 @@ export const VoucherForm: React.FC = () => {
 
       if (generateResult.success) {
         setGeneratedSeats(generateResult.seats)
+        setCurrentVoucher({
+          exists: true,
+          seats: generateResult.seats,
+          flightNumber: formData.flightNumber,
+          date: formattedDate,
+        })
         setSuccessMessage('Vouchers generated successfully!')
       } else {
         setErrorMessage('Failed to generate vouchers. Please try again.')
@@ -227,9 +319,14 @@ export const VoucherForm: React.FC = () => {
         <button
           type="submit"
           className="submit-button"
-          disabled={isLoading}
+          disabled={isLoading || isRegenerating}
         >
-          {isLoading ? 'Generating...' : 'Generate Vouchers'}
+          {isLoading 
+            ? 'Generating...' 
+            : currentVoucher?.exists 
+              ? 'Vouchers Already Generated' 
+              : 'Generate Vouchers'
+          }
         </button>
       </form>
 
@@ -247,14 +344,32 @@ export const VoucherForm: React.FC = () => {
 
       {generatedSeats.length > 0 && (
         <div className="seats-display">
-          <h2>Generated Seat Numbers</h2>
+          <h2>
+            {currentVoucher?.exists ? 'Current Seat Assignments' : 'Generated Seat Numbers'}
+          </h2>
           <div className="seats-list">
             {generatedSeats.map((seat, index) => (
               <div key={index} className="seat-item">
-                {seat}
+                <span className="seat-number">{seat}</span>
+                {currentVoucher?.exists && (
+                  <button
+                    type="button"
+                    className="regenerate-btn"
+                    onClick={() => handleRegenerateSeat(index + 1)}
+                    disabled={isRegenerating || isLoading}
+                    title={`Regenerate seat ${index + 1}`}
+                  >
+                    {isRegenerating ? '...' : '🔄'}
+                  </button>
+                )}
               </div>
             ))}
           </div>
+          {currentVoucher?.exists && (
+            <p className="regeneration-info">
+              Click the 🔄 button next to any seat to generate a new random seat assignment.
+            </p>
+          )}
         </div>
       )}
     </div>

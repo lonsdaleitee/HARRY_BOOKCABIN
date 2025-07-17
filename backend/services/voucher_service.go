@@ -98,14 +98,12 @@ func (s *VoucherService) saveVoucher(req *models.GenerateVoucherRequest, seats [
 	return err
 }
 
-// GetVoucherByFlightAndDate retrieves a voucher by flight number and date
-func (s *VoucherService) GetVoucherByFlightAndDate(flightNumber, date string) (*models.Voucher, error) {
-	query := `
-		SELECT id, crew_name, crew_id, flight_number, flight_date, aircraft_type, seat1, seat2, seat3, created_at
-		FROM vouchers WHERE flight_number = ? AND flight_date = ?
-	`
+// GetVoucher retrieves an existing voucher for the given flight and date
+func (s *VoucherService) GetVoucher(flightNumber, date string) (*models.Voucher, error) {
+	query := `SELECT id, crew_name, crew_id, flight_number, flight_date, aircraft_type, seat1, seat2, seat3, created_at 
+			  FROM vouchers WHERE flight_number = ? AND flight_date = ? LIMIT 1`
 
-	voucher := &models.Voucher{}
+	var voucher models.Voucher
 	err := s.db.QueryRow(query, flightNumber, date).Scan(
 		&voucher.ID,
 		&voucher.CrewName,
@@ -121,10 +119,92 @@ func (s *VoucherService) GetVoucherByFlightAndDate(flightNumber, date string) (*
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, nil // Voucher not found
 		}
 		return nil, fmt.Errorf("failed to get voucher: %w", err)
 	}
 
-	return voucher, nil
+	return &voucher, nil
+}
+
+// RegenerateSeat regenerates a single seat for an existing voucher
+func (s *VoucherService) RegenerateSeat(req *models.RegenerateSeatRequest) (*models.RegenerateSeatResponse, error) {
+	// Validate seat position
+	if req.SeatPosition < 1 || req.SeatPosition > 3 {
+		return nil, fmt.Errorf("invalid seat position: %d (must be 1, 2, or 3)", req.SeatPosition)
+	}
+
+	// Get existing voucher
+	voucher, err := s.GetVoucher(req.FlightNumber, req.Date)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get voucher: %w", err)
+	}
+
+	if voucher == nil {
+		return nil, fmt.Errorf("no voucher found for flight %s on %s", req.FlightNumber, req.Date)
+	}
+
+	// Get current seats
+	currentSeats := []string{voucher.Seat1, voucher.Seat2, voucher.Seat3}
+
+	// Generate all possible seats for this aircraft
+	allPossibleSeats, err := utils.GetAllSeats(voucher.AircraftType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available seats: %w", err)
+	}
+
+	// Filter out currently assigned seats (except the one we're regenerating)
+	var availableSeats []string
+
+	for _, seat := range allPossibleSeats {
+		isOccupied := false
+		for i, currentSeat := range currentSeats {
+			if seat == currentSeat && i != (req.SeatPosition-1) {
+				isOccupied = true
+				break
+			}
+		}
+		if !isOccupied {
+			availableSeats = append(availableSeats, seat)
+		}
+	}
+
+	if len(availableSeats) == 0 {
+		return nil, fmt.Errorf("no available seats to regenerate")
+	}
+
+	// Generate a new random seat from available options
+	newSeat, err := utils.GenerateRandomSeat(availableSeats)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate new seat: %w", err)
+	}
+
+	// Update the specific seat in the database
+	var updateQuery string
+	var seatColumn string
+
+	switch req.SeatPosition {
+	case 1:
+		seatColumn = "seat1"
+	case 2:
+		seatColumn = "seat2"
+	case 3:
+		seatColumn = "seat3"
+	}
+
+	updateQuery = fmt.Sprintf("UPDATE vouchers SET %s = ? WHERE flight_number = ? AND flight_date = ?", seatColumn)
+
+	_, err = s.db.Exec(updateQuery, newSeat, req.FlightNumber, req.Date)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update seat: %w", err)
+	}
+
+	// Update current seats array with new seat
+	currentSeats[req.SeatPosition-1] = newSeat
+
+	return &models.RegenerateSeatResponse{
+		Success:  true,
+		NewSeat:  newSeat,
+		AllSeats: currentSeats,
+	}, nil
 }

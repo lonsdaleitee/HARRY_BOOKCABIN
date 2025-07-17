@@ -44,6 +44,8 @@ func main() {
 	{
 		api.POST("/check", voucherHandler.CheckVoucher)
 		api.POST("/generate", voucherHandler.GenerateVoucher)
+		api.POST("/voucher", voucherHandler.GetVoucher)
+		api.POST("/regenerate-seat", voucherHandler.RegenerateSeat)
 	}
 
 	// Health check endpoint

@@ -22,3 +22,14 @@ export const errorMessageAtom = atom<string | null>(null)
 
 // Success message
 export const successMessageAtom = atom<string | null>(null)
+
+// Current voucher state (for regeneration)
+export const currentVoucherAtom = atom<{
+  exists: boolean
+  seats: string[]
+  flightNumber: string
+  date: string
+} | null>(null)
+
+// Regeneration loading state
+export const isRegeneratingAtom = atom(false)

@@ -85,3 +85,34 @@ func ValidateDateFormat(date string) bool {
 	_, err := time.Parse("2006-01-02", date)
 	return err == nil
 }
+
+// GetAllSeats returns all possible seats for a given aircraft type
+func GetAllSeats(aircraftType string) ([]string, error) {
+	config, err := GetAircraftConfig(aircraftType)
+	if err != nil {
+		return nil, err
+	}
+
+	var allSeats []string
+	for row := 1; row <= config.Rows; row++ {
+		for _, seat := range config.Seats {
+			allSeats = append(allSeats, fmt.Sprintf("%d%s", row, seat))
+		}
+	}
+
+	return allSeats, nil
+}
+
+// GenerateRandomSeat generates a single random seat from the available seats
+func GenerateRandomSeat(availableSeats []string) (string, error) {
+	if len(availableSeats) == 0 {
+		return "", fmt.Errorf("no available seats")
+	}
+
+	// Use current time as seed for randomness
+	rand.Seed(time.Now().UnixNano())
+
+	// Pick a random seat from available ones
+	randomIndex := rand.Intn(len(availableSeats))
+	return availableSeats[randomIndex], nil
+}

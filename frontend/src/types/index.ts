@@ -72,6 +72,43 @@ export interface GenerateVoucherResponse {
   seats: string[]
 }
 
+// Get voucher types
+export interface GetVoucherRequest {
+  flightNumber: string
+  date: string
+}
+
+export interface Voucher {
+  id: number
+  crew_name: string
+  crew_id: string
+  flight_number: string
+  flight_date: string
+  aircraft_type: string
+  seat1: string
+  seat2: string
+  seat3: string
+  created_at: string
+}
+
+export interface GetVoucherResponse {
+  voucher: Voucher | null
+  exists: boolean
+}
+
+// Regenerate seat types
+export interface RegenerateSeatRequest {
+  flightNumber: string
+  date: string
+  seatPosition: number // 1, 2, or 3
+}
+
+export interface RegenerateSeatResponse {
+  success: boolean
+  newSeat: string
+  allSeats: string[]
+}
+
 // API request types
 export interface CheckVoucherRequest {
   flightNumber: string

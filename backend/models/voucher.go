@@ -48,7 +48,33 @@ type GenerateVoucherResponse struct {
 // ErrorResponse represents an error response
 type ErrorResponse struct {
 	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
+	Message string `json:"message"`
+}
+
+// GetVoucherRequest represents the request to get existing vouchers
+type GetVoucherRequest struct {
+	FlightNumber string `json:"flightNumber" binding:"required"`
+	Date         string `json:"date" binding:"required"`
+}
+
+// GetVoucherResponse represents the response for getting vouchers
+type GetVoucherResponse struct {
+	Voucher *Voucher `json:"voucher"`
+	Exists  bool     `json:"exists"`
+}
+
+// RegenerateSeatRequest represents the request to regenerate a single seat
+type RegenerateSeatRequest struct {
+	FlightNumber string `json:"flightNumber" binding:"required"`
+	Date         string `json:"date" binding:"required"`
+	SeatPosition int    `json:"seatPosition" binding:"required,min=1,max=3"` // 1, 2, or 3
+}
+
+// RegenerateSeatResponse represents the response for regenerating a single seat
+type RegenerateSeatResponse struct {
+	Success  bool     `json:"success"`
+	NewSeat  string   `json:"newSeat"`
+	AllSeats []string `json:"allSeats"` // All three seats after regeneration
 }
 
 // Database interface for testing
